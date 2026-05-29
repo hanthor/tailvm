@@ -101,6 +101,81 @@ systemctl enable --now libvirtd
 systemctl enable --now libvirtd
 `,
 		},
+		{
+			ID:          "arch",
+			Name:        "Arch Linux Developer Desktop",
+			Description: "Cutting-edge rolling release Arch Linux. Pre-equipped with XFCE, TigerVNC, and KVM nested virt.",
+			DefaultUser: "arch",
+			Packages: []string{
+				"xfce4", "xfce4-goodies", "tigervnc", "tmux", "git", "qemu-desktop", "libvirt",
+				"net-tools", "curl", "bash-completion",
+			},
+			SetupScript: `
+# Configure VNC Server
+mkdir -p /home/arch/.vnc
+echo "vncpass" | vncpasswd -f > /home/arch/.vnc/passwd
+chmod 600 /home/arch/.vnc/passwd
+chown -R arch:arch /home/arch/.vnc
+
+# Create standard xstartup
+cat <<'EOF' > /home/arch/.vnc/xstartup
+#!/bin/sh
+unset SESSION_MANAGER
+unset DBUS_SESSION_BUS_ADDRESS
+startxfce4 &
+EOF
+chmod +x /home/arch/.vnc/xstartup
+chown arch:arch /home/arch/.vnc/xstartup
+
+# Configure VNC systemd service
+cat <<'EOF' > /etc/systemd/system/vncserver@.service
+[Unit]
+Description=Remote desktop service (VNC)
+After=syslog.target network.target
+
+[Service]
+Type=forking
+User=arch
+Group=arch
+WorkingDirectory=/home/arch
+
+PIDFile=/home/arch/.vnc/%H:%i.pid
+ExecStartPre=-/usr/bin/vncserver -kill :%i > /dev/null 2>&1
+ExecStart=/usr/bin/vncserver -depth 24 -geometry 1280x800 :%i
+ExecStop=/usr/bin/vncserver -kill :%i
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+systemctl daemon-reload
+systemctl enable vncserver@1.service
+systemctl start vncserver@1.service
+systemctl enable --now libvirtd
+`,
+		},
+		{
+			ID:          "nixos",
+			Name:        "NixOS Server",
+			Description: "Declarative, reproducible NixOS server. Pre-configured for cloud-init.",
+			DefaultUser: "nixos",
+			Packages:    []string{},
+			SetupScript: `
+echo "tailvm: NixOS initialized" >> /var/log/tailvm.log
+`,
+		},
+		{
+			ID:          "alpine",
+			Name:        "Alpine Linux Micro Server",
+			Description: "Security-oriented, ultra-lightweight server. Fits in 512MB RAM, boots instantly.",
+			DefaultUser: "alpine",
+			Packages: []string{
+				"tmux", "curl", "git", "bash", "net-tools",
+			},
+			SetupScript: `
+apk add --no-cache bash-completion >/dev/null 2>&1
+`,
+		},
 	}
 }
 

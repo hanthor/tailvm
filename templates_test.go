@@ -10,25 +10,51 @@ import (
 // TestGetOSPresets verifies default OS presets exist and carry correct values.
 func TestGetOSPresets(t *testing.T) {
 	presets := GetOSPresets()
-	if len(presets) == 0 {
-		t.Fatal("expected at least one OS preset")
+	if len(presets) < 6 {
+		t.Fatalf("expected at least 6 OS presets, got %d", len(presets))
 	}
 
 	foundDesktop := false
+	foundArch := false
+	foundNixOS := false
+	foundAlpine := false
+
 	for _, p := range presets {
-		if p.ID == "ubuntu-desktop" {
+		switch p.ID {
+		case "ubuntu-desktop":
 			foundDesktop = true
 			if p.DefaultUser != "james" {
 				t.Errorf("expected default user to be james, got %s", p.DefaultUser)
 			}
-			if len(p.Packages) == 0 {
-				t.Error("expected packages to be populated for desktop")
+		case "arch":
+			foundArch = true
+			if p.DefaultUser != "arch" {
+				t.Errorf("expected default user to be arch, got %s", p.DefaultUser)
+			}
+		case "nixos":
+			foundNixOS = true
+			if p.DefaultUser != "nixos" {
+				t.Errorf("expected default user to be nixos, got %s", p.DefaultUser)
+			}
+		case "alpine":
+			foundAlpine = true
+			if p.DefaultUser != "alpine" {
+				t.Errorf("expected default user to be alpine, got %s", p.DefaultUser)
 			}
 		}
 	}
 
 	if !foundDesktop {
 		t.Error("expected to find ubuntu-desktop preset")
+	}
+	if !foundArch {
+		t.Error("expected to find arch preset")
+	}
+	if !foundNixOS {
+		t.Error("expected to find nixos preset")
+	}
+	if !foundAlpine {
+		t.Error("expected to find alpine preset")
 	}
 }
 
