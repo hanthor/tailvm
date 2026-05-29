@@ -181,7 +181,7 @@ func TestCreateVMAndProxy(t *testing.T) {
 	cloudInit := "cloud-init-data"
 
 	// Create VM
-	err := cm.CreateVM(name, namespace, cores, memoryGB, isProtected, useDataVolume, diskSrc, cloudInit)
+	err := cm.CreateVM(name, namespace, cores, memoryGB, isProtected, useDataVolume, diskSrc, cloudInit, "ubuntu-desktop")
 	if err != nil {
 		t.Fatalf("failed to create VM: %v", err)
 	}

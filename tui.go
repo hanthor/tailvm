@@ -440,7 +440,24 @@ func (m *TUIModel) handleFormToggle(right bool) {
 				m.selectedPreset--
 			}
 		}
-		m.formInputs[fieldOS].SetValue(m.osPresets[m.selectedPreset].Name)
+		preset := m.osPresets[m.selectedPreset]
+		m.formInputs[fieldOS].SetValue(preset.Name)
+
+		// Automatically configure recommended cores and RAM for this preset
+		if preset.ID == "alpine" {
+			m.formInputs[fieldCPU].SetValue("1")
+			m.formInputs[fieldRAM].SetValue("1")
+		} else {
+			m.formInputs[fieldCPU].SetValue("4")
+			m.formInputs[fieldRAM].SetValue("8")
+		}
+
+		if m.diskModeVal == "DataVolume" {
+			resolved := ResolveCatalogURL(preset.ID)
+			if resolved != "" {
+				m.formInputs[fieldDiskSrc].SetValue(resolved)
+			}
+		}
 	} else if m.activeField == fieldDiskMode {
 		if m.diskModeVal == "DataVolume" {
 			m.diskModeVal = "HostDisk"
@@ -448,8 +465,10 @@ func (m *TUIModel) handleFormToggle(right bool) {
 			m.formInputs[fieldDiskSrc].SetValue("/var/tmp/" + m.formInputs[fieldVMName].Value() + ".raw")
 		} else {
 			m.diskModeVal = "DataVolume"
-			m.formInputs[fieldDiskSrc].Placeholder = "https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img"
-			m.formInputs[fieldDiskSrc].SetValue("https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img")
+			preset := m.osPresets[m.selectedPreset]
+			resolved := ResolveCatalogURL(preset.ID)
+			m.formInputs[fieldDiskSrc].Placeholder = resolved
+			m.formInputs[fieldDiskSrc].SetValue(resolved)
 		}
 		m.formInputs[fieldDiskMode].SetValue(m.diskModeVal)
 	} else if m.activeField == fieldProtect {
@@ -488,8 +507,12 @@ func (m TUIModel) submitVMCreate() (tea.Model, tea.Cmd) {
 	m.loadingMsg = fmt.Sprintf("Provisioning VM %s with OS %s...", name, preset.Name)
 
 	return m, func() tea.Msg {
-		cloudInit := GenerateCloudInit(preset.DefaultUser, sshKey, preset)
-		err := m.client.CreateVM(name, "default", cores, ram, protectVal, useDataVolume, diskSrc, cloudInit)
+		var cloudInit string
+		// Only Linux presets use standard Cloud-Init userdata definitions
+		if !strings.HasPrefix(preset.ID, "windows") && !strings.HasPrefix(preset.ID, "macos") {
+			cloudInit = GenerateCloudInit(preset.DefaultUser, sshKey, preset)
+		}
+		err := m.client.CreateVM(name, "default", cores, ram, protectVal, useDataVolume, diskSrc, cloudInit, preset.ID)
 		if err != nil {
 			return errMsg(err)
 		}

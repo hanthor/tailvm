@@ -176,6 +176,38 @@ echo "tailvm: NixOS initialized" >> /var/log/tailvm.log
 apk add --no-cache bash-completion >/dev/null 2>&1
 `,
 		},
+		{
+			ID:          "windows-10",
+			Name:        "Windows 10 Pro (Hyper-V Optimized)",
+			Description: "Windows 10 with Hyper-V enlightenments, UEFI BIOS, and pre-mapped VirtIO driver ISO.",
+			DefaultUser: "Administrator",
+			Packages:    []string{},
+			SetupScript: "",
+		},
+		{
+			ID:          "windows-11",
+			Name:        "Windows 11 Pro (SecureBoot & TPM v2.0)",
+			Description: "Windows 11 with SecureBoot enabled, System Management Mode (SMM), and Software TPM 2.0.",
+			DefaultUser: "Administrator",
+			Packages:    []string{},
+			SetupScript: "",
+		},
+		{
+			ID:          "macos-sonoma",
+			Name:        "macOS Sonoma (Sonoma 14)",
+			Description: "macOS Sonoma. Includes Penryn CPU model override, Apple SMC OSK key, and SATA virtual controller.",
+			DefaultUser: "macos",
+			Packages:    []string{},
+			SetupScript: "",
+		},
+		{
+			ID:          "macos-ventura",
+			Name:        "macOS Ventura (Ventura 13)",
+			Description: "macOS Ventura. Optimised with custom QEMU device bindings and OpenCore boot support.",
+			DefaultUser: "macos",
+			Packages:    []string{},
+			SetupScript: "",
+		},
 	}
 }
 
@@ -236,7 +268,7 @@ func indentLines(str string, indent int) string {
 	if str == "" {
 		return ""
 	}
-	prefix := strings.Repeat("  ", indent)
+	prefix := strings.Repeat(" ", indent)
 	lines := strings.Split(strings.TrimSpace(str), "\n")
 	for i, line := range lines {
 		lines[i] = prefix + line
@@ -245,7 +277,7 @@ func indentLines(str string, indent int) string {
 }
 
 // GenerateVMManifest returns the raw YAML for the VirtualMachine object.
-func GenerateVMManifest(name, namespace string, cpuCores int, memoryGuestGB int, isProtected bool, useDataVolume bool, diskSource string, cloudInitData string) string {
+func GenerateVMManifest(name, namespace string, cpuCores int, memoryGuestGB int, isProtected bool, useDataVolume bool, diskSource string, cloudInitData string, osPresetID string) string {
 	protectionLabel := "false"
 	if isProtected {
 		protectionLabel = "true"
@@ -267,7 +299,7 @@ func GenerateVMManifest(name, namespace string, cpuCores int, memoryGuestGB int,
       storage:
         resources:
           requests:
-            storage: 20Gi
+            storage: 25Gi
         storageClassName: local-path
       source:
         http:
@@ -282,9 +314,112 @@ func GenerateVMManifest(name, namespace string, cpuCores int, memoryGuestGB int,
 		dataVolumeTemplateYAML = ""
 	}
 
+	// 1. Build domain feature blocks
+	featuresYAML := `        features:
+          acpi: {}`
+	if strings.HasPrefix(osPresetID, "windows") {
+		featuresYAML = `        features:
+          acpi: {}
+          apic: {}
+          hyperv:
+            relaxed:
+              enabled: true
+            vapic:
+              enabled: true
+            spinlocks:
+              enabled: true
+              spinlocks: 8191
+            vpindex:
+              enabled: true
+            runtime:
+              enabled: true
+            synic:
+              enabled: true
+            synictimer:
+              enabled: true
+            reset:
+              enabled: true
+            vendorid:
+              enabled: true
+              vendorid: "none"
+          smm:
+            enabled: true`
+	}
+
+	// 2. Build firmware block
+	firmwareYAML := ""
+	if strings.HasPrefix(osPresetID, "windows") {
+		firmwareYAML = `        firmware:
+          bootloader:
+            efi:
+              secureBoot: true`
+	}
+
+	// 3. Build TPM block
+	tpmYAML := ""
+	if osPresetID == "windows-11" {
+		tpmYAML = "\n          tpm: {}"
+	}
+
+	// 4. Build custom QEMU command line arguments for macOS
+	qemuArgsYAML := ""
+	if strings.HasPrefix(osPresetID, "macos") {
+		qemuArgsYAML = `        qemu:
+          commandline:
+            args:
+            - key: "-device"
+              value: "isa-applesmc,osk=ourhardcodedkeyisourhardcodedkeyis(c)AppleComputerInc"
+            - key: "-cpu"
+              value: "Penryn,kvm=on,vendor=GenuineIntel,+sse3,+sse4.1,+sse4.2,+popcnt,+hypervisor"`
+	}
+
+	// 5. Build disks block
+	disksYAML := ""
+	if strings.HasPrefix(osPresetID, "macos") {
+		disksYAML = `- bootOrder: 1
+  disk:
+    bus: sata
+  name: rootdisk`
+	} else if strings.HasPrefix(osPresetID, "windows") {
+		disksYAML = `- bootOrder: 1
+  disk:
+    bus: virtio
+  name: rootdisk
+- cdrom:
+    bus: sata
+  name: virtio-drivers`
+	} else {
+		// Linux default
+		disksYAML = `- bootOrder: 1
+  disk:
+    bus: virtio
+  name: rootdisk
+- disk:
+    bus: virtio
+  name: cloudinitdisk`
+	}
+
+	// 6. Build volumes block
+	volumesYAML := volumeSourceYAML
+	if strings.HasPrefix(osPresetID, "windows") {
+		volumesYAML += `
+      - containerDisk:
+          image: quay.io/kubevirt/virtio-container-disk
+        name: virtio-drivers`
+	} else if !strings.HasPrefix(osPresetID, "macos") {
+		// Linux cloud-init volume
+		volumesYAML += fmt.Sprintf(`
+      - cloudInitNoCloud:
+          userData: |
+%s
+        name: cloudinitdisk`, indentLines(cloudInitData, 12))
+	}
+
 	warningMsg := "WARNING: This is a persistent developer PET VM managed by Tailvm. DO NOT DELETE. Deleting this VM will cause developer disruption and immediate data loss."
 
-	return fmt.Sprintf(`apiVersion: kubevirt.io/v1
+	// Construct full manifest YAML
+	var manifest strings.Builder
+	manifest.WriteString(fmt.Sprintf(`apiVersion: kubevirt.io/v1
 kind: VirtualMachine
 metadata:
   name: %s
@@ -310,28 +445,36 @@ spec:
           model: host-passthrough
         devices:
           disks:
-          - bootOrder: 1
-            disk:
-              bus: virtio
-            name: rootdisk
-          - disk:
-              bus: virtio
-            name: cloudinitdisk
+%s
           interfaces:
           - masquerade: {}
-            name: default
+            name: default%s
         memory:
           guest: %dGi
-      networks:
+`, name, namespace, protectionLabel, warningMsg, warningMsg, name, cpuCores, indentLines(disksYAML, 10), tpmYAML, memoryGuestGB))
+
+	if featuresYAML != "" {
+		manifest.WriteString(featuresYAML + "\n")
+	}
+	if firmwareYAML != "" {
+		manifest.WriteString(firmwareYAML + "\n")
+	}
+	if qemuArgsYAML != "" {
+		manifest.WriteString(qemuArgsYAML + "\n")
+	}
+
+	manifest.WriteString(fmt.Sprintf(`      networks:
       - name: default
         pod: {}
       volumes:
 %s
-      - cloudInitNoCloud:
-          userData: |
-%s
-        name: cloudinitdisk
-%s`, name, namespace, protectionLabel, warningMsg, warningMsg, name, cpuCores, memoryGuestGB, volumeSourceYAML, indentLines(cloudInitData, 6), dataVolumeTemplateYAML)
+`, volumesYAML))
+
+	if dataVolumeTemplateYAML != "" {
+		manifest.WriteString(dataVolumeTemplateYAML + "\n")
+	}
+
+	return manifest.String()
 }
 
 // GenerateProxyManifests returns the Deployment, Service, ServiceAccount, and RBAC manifests for the Tailscale Operator Proxy.

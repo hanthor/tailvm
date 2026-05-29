@@ -217,11 +217,11 @@ func (cm *ClientManager) ListVMs(namespace string) ([]VMInfo, error) {
 }
 
 // CreateVM provisions a VM, sets its Tailscale Proxy and Deletion Protection metadata.
-func (cm *ClientManager) CreateVM(name, namespace string, cpuCores, memoryGB int, isProtected bool, useDataVolume bool, diskSource, cloudInit string) error {
+func (cm *ClientManager) CreateVM(name, namespace string, cpuCores, memoryGB int, isProtected bool, useDataVolume bool, diskSource, cloudInit, osPresetID string) error {
 	ctx := context.TODO()
 
 	// 1. Generate VM Resource Manifest
-	vmManifestYAML := GenerateVMManifest(name, namespace, cpuCores, memoryGB, isProtected, useDataVolume, diskSource, cloudInit)
+	vmManifestYAML := GenerateVMManifest(name, namespace, cpuCores, memoryGB, isProtected, useDataVolume, diskSource, cloudInit, osPresetID)
 	
 	// Parse VM YAML into dynamic object
 	var vmObj unstructured.Unstructured

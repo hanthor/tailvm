@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
@@ -17,6 +18,7 @@ var (
 	diskModeFlag  string
 	sshKeyFlag    string
 	protectFlag   bool
+	osPresetIDFlag string
 )
 
 func main() {
@@ -84,30 +86,59 @@ and carry robust safety registries to prevent automated cleanup scripts or LLMs 
 			}
 
 			presets := GetOSPresets()
-			// Default preset is Ubuntu Desktop
-			selectedPreset := presets[0]
-
-			if sshKeyFlag == "" {
-				sshKeyFlag = DetectLocalSSHKeys()
+			var selectedPreset OSTemplate
+			foundPreset := false
+			for _, p := range presets {
+				if p.ID == osPresetIDFlag {
+					selectedPreset = p
+					foundPreset = true
+					break
+				}
 			}
-			if sshKeyFlag == "" {
-				fmt.Println("❌ Error: No SSH key supplied or detected. Please use --ssh-key.")
+			if !foundPreset {
+				fmt.Printf("❌ OS Preset ID '%s' is not supported. Run 'tailvm catalog' to see options.\n", osPresetIDFlag)
 				os.Exit(1)
+			}
+
+			// If they left the default Ubuntu source, but chose another OS, override it with Resolved URL
+			if osPresetIDFlag != "ubuntu-desktop" && osPresetIDFlag != "ubuntu-server" && diskSourceFlag == "https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img" {
+				resolved := ResolveCatalogURL(osPresetIDFlag)
+				if resolved != "" {
+					diskSourceFlag = resolved
+				}
+			}
+
+			if sshKeyFlag == "" && !strings.HasPrefix(osPresetIDFlag, "windows") && !strings.HasPrefix(osPresetIDFlag, "macos") {
+				sshKeyFlag = DetectLocalSSHKeys()
 			}
 
 			useDataVolume := diskModeFlag == "DataVolume"
 
-			cloudInit := GenerateCloudInit(selectedPreset.DefaultUser, sshKeyFlag, selectedPreset)
+			var cloudInit string
+			if !strings.HasPrefix(osPresetIDFlag, "windows") && !strings.HasPrefix(osPresetIDFlag, "macos") {
+				if sshKeyFlag == "" {
+					fmt.Println("❌ Error: No SSH key supplied or detected. Please use --ssh-key.")
+					os.Exit(1)
+				}
+				cloudInit = GenerateCloudInit(selectedPreset.DefaultUser, sshKeyFlag, selectedPreset)
+			}
 
 			fmt.Printf("🛠️  Creating KubeVirt VM %s (Cores: %d, Memory: %dGB)...\n", vmName, cpuFlag, memoryFlag)
-			err = cm.CreateVM(vmName, namespaceFlag, cpuFlag, memoryFlag, protectFlag, useDataVolume, diskSourceFlag, cloudInit)
+			err = cm.CreateVM(vmName, namespaceFlag, cpuFlag, memoryFlag, protectFlag, useDataVolume, diskSourceFlag, cloudInit, osPresetIDFlag)
 			if err != nil {
 				fmt.Printf("❌ VM creation failed: %v\n", err)
 				os.Exit(1)
 			}
 			fmt.Printf("🎉 VM %s created! Once active, connect via:\n", vmName)
-			fmt.Printf("   👉 SSH:  ssh %s@%s-vm.tailnet\n", selectedPreset.DefaultUser, vmName)
-			fmt.Printf("   👉 VNC:  http://%s-vm.tailnet\n", vmName)
+			if strings.HasPrefix(osPresetIDFlag, "windows") {
+				fmt.Printf("   👉 VNC:  http://%s-vm.tailnet\n", vmName)
+				fmt.Printf("   👉 SSH:  (natively disabled by default on Windows, connect via VNC first)\n")
+			} else if strings.HasPrefix(osPresetIDFlag, "macos") {
+				fmt.Printf("   👉 VNC:  http://%s-vm.tailnet\n", vmName)
+			} else {
+				fmt.Printf("   👉 SSH:  ssh %s@%s-vm.tailnet\n", selectedPreset.DefaultUser, vmName)
+				fmt.Printf("   👉 VNC:  http://%s-vm.tailnet\n", vmName)
+			}
 		},
 	}
 	createCmd.Flags().IntVar(&cpuFlag, "cpu", 4, "Number of CPU Cores")
@@ -116,7 +147,24 @@ and carry robust safety registries to prevent automated cleanup scripts or LLMs 
 	createCmd.Flags().StringVar(&diskModeFlag, "disk-mode", "DataVolume", "Disk import type: 'DataVolume' or 'HostDisk'")
 	createCmd.Flags().StringVar(&sshKeyFlag, "ssh-key", "", "Public SSH key contents")
 	createCmd.Flags().BoolVar(&protectFlag, "protect", true, "Enable protective safety tags against cleanup scripts")
+	createCmd.Flags().StringVar(&osPresetIDFlag, "os", "ubuntu-desktop", "Operating system preset ID")
 	rootCmd.AddCommand(createCmd)
+
+	// 2.5 catalog command
+	var catalogCmd = &cobra.Command{
+		Use:   "catalog",
+		Short: "Lists all premium operating system templates and their configurations",
+		Run: func(cmd *cobra.Command, args []string) {
+			items := GetCatalogItems()
+			fmt.Printf("📋 Premium Operating System Catalog:\n\n")
+			fmt.Printf("%-18s %-40s %-8s %-8s %-8s\n", "OS PRESET ID", "OS TEMPLATE NAME", "ARCH", "CPU CORES", "RAM")
+			fmt.Println(strings.Repeat("-", 88))
+			for _, item := range items {
+				fmt.Printf("%-18s %-40s %-8s %-8d %-8dGi\n", item.ID, item.Name, item.Arch, item.DefaultCores, item.DefaultRAM)
+			}
+		},
+	}
+	rootCmd.AddCommand(catalogCmd)
 
 	// 3. list command
 	var listCmd = &cobra.Command{

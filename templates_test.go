@@ -84,6 +84,7 @@ func TestGenerateCloudInit(t *testing.T) {
 }
 
 // TestGenerateVMManifest verifies VM manifest creation for both DataVolumes and HostDisks.
+// TestGenerateVMManifest verifies VM manifest creation for both DataVolumes and HostDisks.
 func TestGenerateVMManifest(t *testing.T) {
 	name := "test-noble"
 	namespace := "default"
@@ -95,7 +96,7 @@ func TestGenerateVMManifest(t *testing.T) {
 	useDataVolume := true
 	diskSrc := "https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img"
 
-	manifestYAML := GenerateVMManifest(name, namespace, cores, memoryGB, true, useDataVolume, diskSrc, cloudInit)
+	manifestYAML := GenerateVMManifest(name, namespace, cores, memoryGB, true, useDataVolume, diskSrc, cloudInit, "ubuntu-desktop")
 
 	if !strings.Contains(manifestYAML, "kind: VirtualMachine") {
 		t.Error("expected manifest to be of kind VirtualMachine")
@@ -121,7 +122,7 @@ func TestGenerateVMManifest(t *testing.T) {
 	useDataVolume = false
 	diskPath := "/var/tmp/test-noble.raw"
 
-	manifestHostDiskYAML := GenerateVMManifest(name, namespace, cores, memoryGB, false, useDataVolume, diskPath, cloudInit)
+	manifestHostDiskYAML := GenerateVMManifest(name, namespace, cores, memoryGB, false, useDataVolume, diskPath, cloudInit, "ubuntu-desktop")
 
 	if !strings.Contains(manifestHostDiskYAML, "tailvm.io/protected: \"false\"") {
 		t.Error("expected manifest to have protection label disabled")
@@ -137,6 +138,73 @@ func TestGenerateVMManifest(t *testing.T) {
 
 	if strings.Contains(manifestHostDiskYAML, "dataVolumeTemplates:") {
 		t.Error("expected manifest to omit CDI templates in HostDisk mode")
+	}
+}
+
+// TestGenerateVMManifestWindows verifies UEFI, SMM, TPM, and Hyper-V settings for Windows.
+func TestGenerateVMManifestWindows(t *testing.T) {
+	name := "win-pet"
+	namespace := "default"
+	cores := 4
+	memoryGB := 8
+
+	// Test Windows 11 (requires TPM)
+	manifest11 := GenerateVMManifest(name, namespace, cores, memoryGB, true, true, "http://fake-win11-iso", "", "windows-11")
+
+	if !strings.Contains(manifest11, "smm:") {
+		t.Error("expected Windows 11 template to enable System Management Mode (SMM)")
+	}
+
+	if !strings.Contains(manifest11, "efi:") || !strings.Contains(manifest11, "secureBoot: true") {
+		t.Error("expected Windows 11 template to enable secure UEFI boot")
+	}
+
+	if !strings.Contains(manifest11, "tpm: {}") {
+		t.Error("expected Windows 11 template to enable Software TPM 2.0 emulation")
+	}
+
+	if !strings.Contains(manifest11, "hyperv:") || !strings.Contains(manifest11, "spinlocks:") {
+		t.Error("expected Windows 11 template to define Hyper-V performance enlightenments")
+	}
+
+	if !strings.Contains(manifest11, "virtio-drivers") || !strings.Contains(manifest11, "quay.io/kubevirt/virtio-container-disk") {
+		t.Error("expected Windows template to mount the KubeVirt VirtIO drivers container disk")
+	}
+
+	// Test Windows 10 (does NOT require TPM)
+	manifest10 := GenerateVMManifest(name, namespace, cores, memoryGB, true, true, "http://fake-win10-iso", "", "windows-10")
+	if strings.Contains(manifest10, "tpm: {}") {
+		t.Error("expected Windows 10 template to omit Software TPM 2.0 emulation")
+	}
+}
+
+// TestGenerateVMManifestMac verifies custom QEMU args, OSK key, and SATA disk configs for macOS.
+func TestGenerateVMManifestMac(t *testing.T) {
+	name := "mac-pet"
+	namespace := "default"
+	cores := 4
+	memoryGB := 8
+
+	manifest := GenerateVMManifest(name, namespace, cores, memoryGB, true, true, "http://fake-mac-opencore", "", "macos-sonoma")
+
+	if !strings.Contains(manifest, "qemu:") || !strings.Contains(manifest, "commandline:") {
+		t.Error("expected macOS template to define raw QEMU command-line configurations")
+	}
+
+	if !strings.Contains(manifest, "isa-applesmc,osk=ourhardcodedkeyisourhardcodedkeyis(c)AppleComputerInc") {
+		t.Error("expected macOS template to pass the official Apple SMC OSK key")
+	}
+
+	if !strings.Contains(manifest, "Penryn") {
+		t.Error("expected macOS template to override CPU model to Penryn")
+	}
+
+	if !strings.Contains(manifest, "bus: sata") {
+		t.Error("expected macOS template to override rootdisk bus controller to SATA")
+	}
+
+	if strings.Contains(manifest, "cloudinitdisk") {
+		t.Error("expected macOS template to omit cloud-init configurations completely")
 	}
 }
 
