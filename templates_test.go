@@ -167,7 +167,7 @@ func TestGenerateVMManifestWindows(t *testing.T) {
 		t.Error("expected Windows 11 template to define Hyper-V performance enlightenments")
 	}
 
-	if !strings.Contains(manifest11, "virtio-drivers") || !strings.Contains(manifest11, "quay.io/kubevirt/virtio-container-disk") {
+	if !strings.Contains(manifest11, "virtio-drivers") || !strings.Contains(manifest11, "kubevirt/virtio-container-disk") {
 		t.Error("expected Windows template to mount the KubeVirt VirtIO drivers container disk")
 	}
 

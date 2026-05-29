@@ -404,7 +404,7 @@ func GenerateVMManifest(name, namespace string, cpuCores int, memoryGuestGB int,
 	if strings.HasPrefix(osPresetID, "windows") {
 		volumesYAML += `
       - containerDisk:
-          image: quay.io/kubevirt/virtio-container-disk
+          image: kubevirt/virtio-container-disk
         name: virtio-drivers`
 	} else if !strings.HasPrefix(osPresetID, "macos") {
 		// Linux cloud-init volume
