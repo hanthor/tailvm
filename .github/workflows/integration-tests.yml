@@ -1,0 +1,76 @@
+name: 🛡️ Tailvm CI Integration Tests
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  ci-pipeline:
+    name: Run Lint, Build, Unit & Integration Tests
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Check out repository
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.26'
+        cache: true
+
+    - name: Verify Compilation & Build
+      run: |
+        go build -v -o tailvm .
+
+    - name: Run Go Unit Tests
+      run: |
+        go test -v -race ./...
+
+    - name: Create KinD Cluster Config
+      run: |
+        cat <<EOF > kind-config.yaml
+        kind: Cluster
+        apiVersion: kind.x-k8s.io/v1alpha4
+        nodes:
+        - role: control-plane
+          extraMounts:
+          # Pass through /dev/kvm to the KinD node if it exists on the host
+          - hostPath: /dev/kvm
+            containerPath: /dev/kvm
+        EOF
+
+    - name: Create KinD Cluster
+      uses: helm/kind-action@v1.10.0
+      with:
+        config: kind-config.yaml
+        cluster_name: tailvm-test-cluster
+
+    - name: Verify Cluster Connection
+      run: |
+        kubectl cluster-info
+        kubectl get nodes -o wide
+
+    - name: Run Tailvm Bootstrap (Installs Operators)
+      run: |
+        # Trigger bootstrapping to install KubeVirt and CDI
+        ./tailvm bootstrap
+        
+        # Fallback to software emulation if running on standard GitHub Actions hosts
+        if [ ! -e /dev/kvm ]; then
+          echo "⚠️ Hardware virtualization missing. Patching KubeVirt to software emulation..."
+          kubectl patch kubevirt kubevirt -n kubevirt --type merge -p '{"spec":{"configuration":{"developerConfiguration":{"useEmulation":true}}}}'
+        fi
+
+    - name: Wait for KubeVirt components to be Ready
+      run: |
+        echo "⏳ Waiting for KubeVirt CR to enter Deployed phase..."
+        kubectl wait --for=jsonpath='{.status.phase}'=Deployed kubevirt/kubevirt -n kubevirt --timeout=300s
+        kubectl get pods -n kubevirt
+
+    - name: Run Live Integration Test Harness (Placeholder)
+      run: |
+        # Runs standard tests and integration-tagged suites once files are created
+        go test -tags=integration -v ./...
