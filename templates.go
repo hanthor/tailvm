@@ -399,7 +399,7 @@ spec:
       volumes:
       - name: tools
         emptyDir: {}
-`, vmName, namespace, vmName, namespace, vmName, namespace, vmName, namespace, vmName, namespace, vmName, namespace, vmName, vmName, vmName, vmName, namespace, vmName, vmName, vmName, vmName, vmName, vmName, namespace, namespace, vmName)
+`, vmName, namespace, vmName, namespace, vmName, namespace, vmName, namespace, vmName, vmName, namespace, vmName, vmName, vmName, vmName, namespace, vmName, vmName, vmName, vmName, vmName, namespace, namespace, vmName)
 }
 
 // GenerateNamespaceConfigMapManifest returns the manifest for a namespace ConfigMap explaining the protection policy.
